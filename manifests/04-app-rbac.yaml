@@ -1,0 +1,20 @@
+# Identity the demo app uses to call NeMo Guardrails (enable-auth: 'true' => bearer token required).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chat-app
+  namespace: ${NAMESPACE}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chat-app-view
+  namespace: ${NAMESPACE}
+subjects:
+  - kind: ServiceAccount
+    name: chat-app
+    namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view

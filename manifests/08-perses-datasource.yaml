@@ -1,0 +1,29 @@
+# Namespace-scoped datasource -> Thanos Querier tenancy port (9092) = user-workload metrics,
+# restricted to ?namespace=${NAMESPACE}. Perses forwards the VIEWER's OpenShift token
+# (kubernetesAuth), so no ServiceAccount/Secret is needed.
+# `secret:` names the Perses-internal secret the operator auto-creates as <datasource-name>-secret
+# from spec.client.tls; it is NOT a Kubernetes Secret. Without it: x509 unknown authority.
+apiVersion: perses.dev/v1alpha2
+kind: PersesDatasource
+metadata:
+  name: guardrails-thanos
+  namespace: ${NAMESPACE}
+spec:
+  config:
+    display:
+      name: "Thanos Querier (${NAMESPACE})"
+    default: true
+    plugin:
+      kind: PrometheusDatasource
+      spec:
+        proxy:
+          kind: HTTPProxy
+          spec:
+            url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9092?namespace=${NAMESPACE}
+            secret: guardrails-thanos-secret
+  client:
+    tls:
+      enable: true
+      caCert:
+        type: file
+        certPath: /ca/service-ca.crt

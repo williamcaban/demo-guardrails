@@ -1,0 +1,33 @@
+# Scrape the collector's spanmetrics output with User Workload Monitoring, and expose it under the
+# metric names used in the dashboard queries (guardrails_requests_total / _blocked_total).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-collector-spanmetrics
+  namespace: ${NAMESPACE}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: ${NAMESPACE}.otel
+      operator.opentelemetry.io/collector-service-type: base
+  endpoints:
+    - port: prometheus
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: guardrails-request-metrics
+  namespace: ${NAMESPACE}
+spec:
+  groups:
+    - name: guardrails.requests
+      interval: 15s
+      rules:
+        # One guardrails.request span per guarded request.
+        - record: guardrails_requests_total
+          expr: sum by (service_name) (traces_span_metrics_calls_total{span_name="guardrails.request"})
+        # A request is blocked when a rail span reports rail.stop="true" (a request stops at the
+        # first blocking rail, so rail-stop count == blocked-request count).
+        - record: guardrails_requests_blocked_total
+          expr: sum by (service_name, rail_type, rail_name) (traces_span_metrics_calls_total{span_name="guardrails.rail", rail_stop="true"})

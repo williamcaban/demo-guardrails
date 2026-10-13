@@ -1,0 +1,10 @@
+# Never commit credentials or local overrides
+.env
+*.local
+*.secret.yaml
+secrets/
+
+# Rendered manifests, if you choose to dump them
+rendered/
+
+.DS_Store

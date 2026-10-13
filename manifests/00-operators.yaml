@@ -1,0 +1,60 @@
+# Red Hat build of OpenTelemetry + Cluster Observability Operator (Perses UI plugin).
+#
+# Each operator gets its OWN namespace + OperatorGroup. Do NOT put these in openshift-operators
+# on a cluster where any subscription there is Manual-approval (e.g. servicemeshoperator3):
+# OLM resolves a namespace's subscriptions together and forces ALL generated InstallPlans to
+# Manual, and the plan then bundles the pending upgrade of the Manual subscription.
+# AllNamespaces install mode == OperatorGroup with no targetNamespaces.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-opentelemetry-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-opentelemetry-operator
+  namespace: openshift-opentelemetry-operator
+spec:
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: opentelemetry-product
+  namespace: openshift-opentelemetry-operator
+spec:
+  channel: stable
+  name: opentelemetry-product
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-cluster-observability-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-cluster-observability-operator
+  namespace: openshift-cluster-observability-operator
+spec:
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-observability-operator
+  namespace: openshift-cluster-observability-operator
+spec:
+  channel: stable
+  name: cluster-observability-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

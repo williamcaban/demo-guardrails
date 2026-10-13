@@ -1,0 +1,74 @@
+# Config: PII + secret-pattern input rails, PII output rail, OTEL tracing, any OpenAI-compatible model as main.
+# Placeholders ${NAMESPACE} ${MODEL_NAME} ${MODEL_BASE_URL} are filled in by scripts/deploy.sh.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nemo-demo-config
+  namespace: ${NAMESPACE}
+data:
+  config.yaml: |
+    models:
+      - type: main
+        engine: openai
+        model: ${MODEL_NAME}
+        api_key_env_var: MODEL_API_KEY
+        parameters:
+          base_url: ${MODEL_BASE_URL}
+    tracing:
+      enabled: true
+      span_format: opentelemetry
+      enable_content_capture: false   # never capture prompts/responses in production
+      adapters:
+        - name: OpenTelemetry
+    rails:
+      config:
+        sensitive_data_detection:
+          input:
+            entities: [EMAIL_ADDRESS, PHONE_NUMBER, US_SSN, CREDIT_CARD]
+            score_threshold: 0.5
+          output:
+            entities: [EMAIL_ADDRESS, PHONE_NUMBER, US_SSN, CREDIT_CARD]
+            score_threshold: 0.5
+        regex_detection:
+          input:
+            patterns:
+              - "\\b(password|secret|api[_-]?key|token)\\b"
+              - "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+            case_insensitive: true
+      input:
+        flows:
+          - detect sensitive data on input
+          - regex check input
+      output:
+        flows:
+          - detect sensitive data on output
+  rails.co: |
+    # Built-in rails only
+---
+apiVersion: trustyai.opendatahub.io/v1alpha1
+kind: NemoGuardrails
+metadata:
+  name: nemo-demo
+  namespace: ${NAMESPACE}
+  annotations:
+    security.opendatahub.io/enable-auth: 'true'
+spec:
+  nemoConfigs:
+    - name: nemo-demo-config
+      configMaps:
+        - nemo-demo-config
+      default: true
+  env:
+    - name: MODEL_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: model-api-key
+          key: API_KEY
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://otel-collector.${NAMESPACE}.svc.cluster.local:4317"
+    - name: OTEL_EXPORTER_OTLP_PROTOCOL
+      value: "grpc"
+    - name: OTEL_SERVICE_NAME
+      value: "nemo-guardrails"
+    - name: OTEL_METRICS_EXPORTER
+      value: "none"

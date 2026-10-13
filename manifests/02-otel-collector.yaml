@@ -1,0 +1,57 @@
+# NeMo Guardrails emits TRACES only (Red Hat docs set OTEL_METRICS_EXPORTER=none).
+# This collector receives those traces and derives Prometheus counters from the spans.
+#
+# Verified span model (NeMo 0.24.0.dev0 in RHOAI 3.5.1):
+#   guardrails.request  (Server)    one per guarded request
+#   guardrails.rail     (Internal)  one per rail; attrs rail.type (input|output|generation),
+#                                   rail.name, rail.stop ("true" => this rail blocked the request)
+#   guardrails.action   (Internal)  per action, attr action.name
+# Everything else (GET / kube-probe, "http send/receive", LLM client spans) is dropped from the
+# metrics pipeline to keep series cardinality low; the full trace still goes to the debug exporter
+# (swap it for an otlp exporter to Tempo/Jaeger for trace drill-down).
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+  namespace: ${NAMESPACE}
+spec:
+  mode: deployment
+  replicas: 1
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      filter/guardrails-only:
+        error_mode: ignore
+        traces:
+          span:
+            - 'not (name == "guardrails.request" or name == "guardrails.rail")'
+    connectors:
+      spanmetrics:
+        dimensions:
+          - name: rail.name
+          - name: rail.type
+          - name: rail.stop
+        metrics_flush_interval: 15s
+    exporters:
+      debug:
+        verbosity: basic
+      prometheus:
+        endpoint: 0.0.0.0:8889
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          exporters: [debug]
+        traces/metrics:
+          receivers: [otlp]
+          processors: [filter/guardrails-only]
+          exporters: [spanmetrics]
+        metrics:
+          receivers: [spanmetrics]
+          exporters: [prometheus]

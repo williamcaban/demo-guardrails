@@ -1,0 +1,357 @@
+# Blocked vs allowed, block ratio, counts per interval and trend for NeMo Guardrails.
+# Generated structure; panel $ref paths use the Perses-internal #/spec/panels/<id> form.
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: nemo-guardrails-blocked-vs-allowed
+  namespace: ${NAMESPACE}
+  annotations:
+    perses.dev/tags: guardrails,nemo,ai-safety
+spec:
+  config:
+    display:
+      name: 'NeMo Guardrails: blocked vs allowed'
+      description: 'Blocked vs allowed requests, block ratio, absolute counts and trends. Source: NeMo OTEL traces -> spanmetrics -> recording
+        rules.'
+    duration: 1h
+    refreshInterval: 30s
+    panels:
+      statTotal:
+        kind: Panel
+        spec:
+          display:
+            name: Total requests (per interval)
+            description: Guarded requests seen by NeMo Guardrails in the last interval.
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last-number
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              sparkline: {}
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(increase(guardrails_requests_total[$__rate_interval]))
+      statAllowed:
+        kind: Panel
+        spec:
+          display:
+            name: Allowed (per interval)
+            description: Requests that passed every rail.
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last-number
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              sparkline:
+                color: '#4E9A06'
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: clamp_min(sum(increase(guardrails_requests_total[$__rate_interval])) - sum(increase(guardrails_requests_blocked_total[$__rate_interval])),
+                    0)
+      statBlocked:
+        kind: Panel
+        spec:
+          display:
+            name: Blocked (per interval)
+            description: Requests stopped by an input or output rail.
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last-number
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              sparkline:
+                color: '#CC0000'
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(increase(guardrails_requests_blocked_total[$__rate_interval]))
+      statRatio:
+        kind: Panel
+        spec:
+          display:
+            name: Block ratio
+            description: Blocked / total over the interval (0-100%).
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last-number
+              format:
+                unit: percent-decimal
+                decimalPlaces: 1
+              sparkline: {}
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(guardrails_requests_blocked_total[$__rate_interval])) / sum(rate(guardrails_requests_total[$__rate_interval]))
+      rateBA:
+        kind: Panel
+        spec:
+          display:
+            name: Blocked vs allowed (req/s)
+            description: Request rate by outcome.
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+                mode: list
+              yAxis:
+                format:
+                  unit: decimal
+                  decimalPlaces: 3
+              visual:
+                display: line
+                lineWidth: 1.5
+                areaOpacity: 0.15
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(guardrails_requests_blocked_total[$__rate_interval]))
+                  seriesNameFormat: blocked
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: clamp_min(sum(rate(guardrails_requests_total[$__rate_interval])) - sum(rate(guardrails_requests_blocked_total[$__rate_interval])),
+                    0)
+                  seriesNameFormat: allowed
+      ratio:
+        kind: Panel
+        spec:
+          display:
+            name: Block ratio
+            description: Share of guarded requests that were blocked.
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+                mode: list
+              yAxis:
+                format:
+                  unit: percent-decimal
+                  decimalPlaces: 1
+                min: 0
+                max: 1
+              visual:
+                display: line
+                lineWidth: 1.5
+                areaOpacity: 0.15
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(guardrails_requests_blocked_total[$__rate_interval])) / sum(rate(guardrails_requests_total[$__rate_interval]))
+                  seriesNameFormat: block ratio
+      counts:
+        kind: Panel
+        spec:
+          display:
+            name: Absolute counts per interval
+            description: Requests per rate interval (adapts to zoom), by outcome.
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+                mode: list
+              yAxis:
+                format:
+                  unit: decimal
+                  decimalPlaces: 0
+              visual:
+                display: bar
+                lineWidth: 1.5
+                areaOpacity: 0.7
+                stack: all
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(increase(guardrails_requests_blocked_total[$__rate_interval]))
+                  seriesNameFormat: blocked
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: clamp_min(sum(increase(guardrails_requests_total[$__rate_interval])) - sum(increase(guardrails_requests_blocked_total[$__rate_interval])),
+                    0)
+                  seriesNameFormat: allowed
+      trend:
+        kind: Panel
+        spec:
+          display:
+            name: Block ratio trend (short window vs 1h rolling)
+            description: Short-window ratio against a 1h rolling baseline; a widening gap means the block rate is shifting.
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+                mode: list
+              yAxis:
+                format:
+                  unit: percent-decimal
+                  decimalPlaces: 1
+                min: 0
+                max: 1
+              visual:
+                display: line
+                lineWidth: 1.5
+                areaOpacity: 0.15
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(guardrails_requests_blocked_total[$__rate_interval])) / sum(rate(guardrails_requests_total[$__rate_interval]))
+                  seriesNameFormat: short window
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(increase(guardrails_requests_blocked_total[1h])) / sum(increase(guardrails_requests_total[1h]))
+                  seriesNameFormat: 1h rolling
+      byRail:
+        kind: Panel
+        spec:
+          display:
+            name: Blocked by rail (req/s)
+            description: Which rail is stopping requests.
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+                mode: list
+              yAxis:
+                format:
+                  unit: decimal
+                  decimalPlaces: 3
+              visual:
+                display: line
+                lineWidth: 1.5
+                areaOpacity: 0.15
+                stack: all
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (rail_name) (rate(guardrails_requests_blocked_total[$__rate_interval]))
+                  seriesNameFormat: '{{rail_name}}'
+    layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Summary
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/statTotal'
+        - x: 6
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/statAllowed'
+        - x: 12
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/statBlocked'
+        - x: 18
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/statRatio'
+    - kind: Grid
+      spec:
+        display:
+          title: Blocked vs allowed
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/rateBA'
+        - x: 12
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/counts'
+    - kind: Grid
+      spec:
+        display:
+          title: Block ratio and trend
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/ratio'
+        - x: 12
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/trend'
+    - kind: Grid
+      spec:
+        display:
+          title: Breakdown
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 24
+          height: 8
+          content:
+            $ref: '#/spec/panels/byRail'
