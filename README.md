@@ -14,6 +14,13 @@ generator against it, turns NeMo's OpenTelemetry traces into Prometheus metrics,
 
 Everything is reproducible with three environment variables and one script.
 
+![NeMo Guardrails blocked vs allowed dashboard in the OpenShift console](docs/images/perses-dashboard.png)
+
+*The dashboard in the OpenShift console (Observe, Dashboards (Perses)) after about 45 minutes of
+synthetic traffic whose block rate swings between roughly 10% and 50%. Top to bottom: summary stats,
+blocked vs allowed rate and absolute counts per interval, block ratio and its trend against a 1h
+rolling baseline, and blocked requests by rail.*
+
 ## Why this exists
 
 Red Hat's NeMo Guardrails integration exports **traces only** (`OTEL_METRICS_EXPORTER=none`), so there is
