@@ -1,0 +1,95 @@
+# EXAMPLE, not applied by deploy.sh. Verified once on RHOAI 3.5.1 (NeMo 0.24.0.dev0, 2026-10-13).
+# Shows NeMo's NATIVE OpenTelemetry metrics (guardrails.requests, guardrails.requests.blocked, ...).
+# They are emitted only by the IORails engine, which needs ALL of:
+#   - env NEMO_GUARDRAILS_IORAILS_ENGINE=true
+#   - config.yaml  metrics.enabled: true
+#   - env OTEL_METRICS_EXPORTER=otlp  (the RHOAI docs set "none")
+#   - a config whose rails IORails supports: content safety check input/output, topic safety check
+#     input, jailbreak detection model, tool call/result validation. Presidio and regex rails are NOT
+#     supported and fall back to the LLMRails engine, which emits no native metrics.
+# Caveat: this example uses the main (reasoning) model as the content-safety classifier. Even with
+# thinking disabled in extra_body, every request was classified unsafe in the test, so only the
+# blocked path was exercised. Use a real content-safety model (e.g. Nemotron Content Safety) for a
+# meaningful policy. Needs the Secret model-api-key (deploy.sh creates it). Apply into a scratch namespace:
+#   export NAMESPACE=guardrails-native MODEL_NAME=... MODEL_BASE_URL=...
+#   source scripts/_common.sh && render examples/native-metrics.yaml | oc apply -f -
+# Then read the series from the collector Service on :8889 (guardrails_requests_total, ...).
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata: {name: otel, namespace: ${NAMESPACE}}
+spec:
+  mode: deployment
+  config:
+    receivers:
+      otlp: {protocols: {grpc: {endpoint: 0.0.0.0:4317}}}
+    exporters:
+      debug: {verbosity: basic}
+      prometheus: {endpoint: 0.0.0.0:8889}
+    service:
+      pipelines:
+        traces: {receivers: [otlp], exporters: [debug]}
+        metrics: {receivers: [otlp], exporters: [prometheus]}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: nemo-native-config, namespace: ${NAMESPACE}}
+data:
+  config.yaml: |
+    models:
+      - type: main
+        engine: openai
+        model: ${MODEL_NAME}
+        api_key_env_var: MODEL_API_KEY
+        parameters:
+          base_url: ${MODEL_BASE_URL}
+      - type: content_safety
+        engine: openai
+        model: ${MODEL_NAME}
+        api_key_env_var: MODEL_API_KEY
+        parameters:
+          base_url: ${MODEL_BASE_URL}
+          extra_body:
+            chat_template_kwargs:
+              enable_thinking: false
+    tracing:
+      enabled: true
+      span_format: opentelemetry
+      enable_content_capture: false
+      adapters:
+        - name: OpenTelemetry
+    metrics:
+      enabled: true
+    rails:
+      input:
+        flows:
+          - content safety check input $model=content_safety
+  prompts.yml: |
+    prompts:
+      - task: content_safety_check_input $model=content_safety
+        content: |
+          You are a safety classifier. Reply with ONLY compact JSON and nothing else.
+          A message is unsafe if it contains an email address, phone number, social security number, credit card number, or the word password.
+          Message: "{{ user_input }}"
+          Reply exactly {"User Safety": "safe"} or {"User Safety": "unsafe"} /no_think
+        output_parser: nemoguard_parse_prompt_safety
+        max_tokens: 60
+  rails.co: |
+    # built-in rails only
+---
+apiVersion: trustyai.opendatahub.io/v1alpha1
+kind: NemoGuardrails
+metadata: {name: nemo-native, namespace: ${NAMESPACE}}
+spec:
+  nemoConfigs:
+    - name: nemo-native-config
+      configMaps: [nemo-native-config]
+      default: true
+  env:
+    - {name: NEMO_GUARDRAILS_IORAILS_ENGINE, value: "true"}
+    - name: MODEL_API_KEY
+      valueFrom: {secretKeyRef: {name: model-api-key, key: API_KEY}}
+    - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.${NAMESPACE}.svc.cluster.local:4317"}
+    - {name: OTEL_EXPORTER_OTLP_PROTOCOL, value: "grpc"}
+    - {name: OTEL_SERVICE_NAME, value: "nemo-native"}
+    - {name: OTEL_METRICS_EXPORTER, value: "otlp"}
+    - {name: OTEL_METRIC_EXPORT_INTERVAL, value: "5000"}

@@ -78,6 +78,15 @@ need a bearer token of an identity with the `view` role in the namespace
 (`manifests/04-app-rbac.yaml` grants it to `chat-app`). From outside the cluster use
 `Authorization: Bearer $(oc whoami -t)` against the Route.
 
+## HTTP 200 with "Could not load the [...] guardrails configuration"
+
+NeMo returns an HTTP 200 chat completion whose content is
+`Could not load the ['<config>'] guardrails configuration. An internal error has occurred.` when the
+configuration fails to load, for example because `MODEL_API_KEY` is not set in the pod
+(`Model API Key environment variable 'MODEL_API_KEY' not set`). Read the pod log for the validation
+error: `oc logs deploy/nemo-demo -c nemo-guardrails | grep -B2 -A8 ValidationError`. A copied Secret
+with the wrong source name produces exactly this.
+
 ## NeMo cannot reach the model (TLS or 401)
 
 - `MODEL_BASE_URL` must end in `/v1`.
@@ -95,9 +104,9 @@ behavior. Raise `max_tokens` in `manifests/06-chat-app.yaml` (`app.py`) or use a
 ## Everything is "blocked" or nothing is
 
 Check the rails in the ConfigMap. Name detection (`PERSON`) is not enabled in this demo; add it under
-`entities` if you want it. In testing, phone numbers only reached the default 0.5 score in
-international format (`+1 415 ...`), and `123-45-6789` was not flagged by Presidio at all, which is
-why the regex rail carries the `NNN-NN-NNNN` pattern.
+`entities` if you want it. In testing, phone numbers only reached the configured 0.5 score in
+international format (`+1 415 ...`), and `123-45-6789` scored below 0.5 for Presidio (`219-09-9999`
+was blocked), which is why the regex rail carries the `NNN-NN-NNNN` pattern.
 
 ## After teardown, an empty Perses project remains
 

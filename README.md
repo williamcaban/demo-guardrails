@@ -16,15 +16,18 @@ Everything is reproducible with three environment variables and one script.
 
 ![NeMo Guardrails blocked vs allowed dashboard in the OpenShift console](docs/images/perses-dashboard.png)
 
-*The dashboard in the OpenShift console (Observe, Dashboards (Perses)) after about 45 minutes of
-synthetic traffic whose block rate swings between roughly 10% and 50%. Top to bottom: summary stats,
-blocked vs allowed rate and absolute counts per interval, block ratio and its trend against a 1h
-rolling baseline, and blocked requests by rail.*
+*The dashboard in the OpenShift console (Observe, Dashboards (Perses)) over a full hour of synthetic
+traffic whose block rate swings between roughly 0% and 50%. Top to bottom: summary stats for the latest
+interval, blocked vs allowed rate and absolute counts per interval, block ratio and its trend against a 1h
+rolling baseline, and blocked requests by rail (Presidio on input, the regex rail, and a few Presidio
+blocks on output at the right edge).*
 
 ## Why this exists
 
-Red Hat's NeMo Guardrails integration exports **traces only** (`OTEL_METRICS_EXPORTER=none`), so there is
-no ready-made `guardrails_requests_blocked_total` to chart. This repo shows how to derive it from the
+With the rails used here (Presidio and regex), NeMo Guardrails on RHOAI exports **traces only**
+(`OTEL_METRICS_EXPORTER=none`). NeMo's native request counters are emitted only by its newer IORails engine,
+which does not support these rails, so there is no ready-made `guardrails_requests_blocked_total` to chart.
+This repo shows how to derive it from the
 spans NeMo already emits, with nothing but supported Red Hat components (OpenTelemetry Collector,
 User Workload Monitoring, Cluster Observability Operator). It also records what behaves differently
 from the documentation. See [docs/how-it-works.md](docs/how-it-works.md).
@@ -48,11 +51,11 @@ flowchart LR
 
 | Need | Notes |
 |---|---|
-| OpenShift 4.15+ | Tested on 4.21 |
+| OpenShift | Tested on 4.21 only; older releases were not tested |
 | Red Hat OpenShift AI 3.5+ | TrustyAI component set to `Managed` (provides the `NemoGuardrails` CRD) |
 | `cluster-admin` | Installs operators and enables a console plugin |
 | User workload monitoring | `enableUserWorkload: true` in `cluster-monitoring-config` (see below) |
-| `redhat-operators` catalog | Must offer `opentelemetry-product` and `cluster-observability-operator` |
+| `redhat-operators` catalog | Must offer `opentelemetry-product` and `cluster-observability-operator` (tested with COO 1.5.3; the dashboard CRs use `perses.dev/v1alpha2`) |
 | An OpenAI-compatible model | Endpoint ending in `/v1` plus an API key (a KServe vLLM service works) |
 | Local tools | `oc`, `bash`, `python3` (only for `verify.sh`) |
 
@@ -85,7 +88,7 @@ export MODEL_API_KEY=<token for the model endpoint>
 
 ./scripts/deploy.sh        # operators, collector, guardrails, app, dashboard
 ./scripts/verify.sh        # every stage green and current numbers
-./scripts/probe.sh         # four sample prompts, raw responses
+./scripts/probe.sh         # four sample prompts: chat completions, then /v1/checks
 ```
 
 Then open the OpenShift console: **Observe, Dashboards (Perses)**, project `guardrails-demo`,
@@ -129,7 +132,7 @@ Why separate namespaces for the operators: see
 
 | Stage | Rail | Catches |
 |---|---|---|
-| input | `detect sensitive data on input` (Presidio) | email, phone (international format), US SSN, credit card |
+| input | `detect sensitive data on input` (Presidio) | email, phone (international format), credit card, and some SSNs (it missed `123-45-6789` at the 0.5 threshold; the regex rail below covers the pattern) |
 | input | `regex check input` | words like `password`/`api_key`/`token`, and `NNN-NN-NNNN` |
 | output | `detect sensitive data on output` (Presidio) | same entities in model responses |
 
@@ -150,11 +153,17 @@ oc rollout restart deploy/nemo-demo -n guardrails-demo
 [email  ] http=200  0.02s :: "I don't know the answer to that."
 [ssn    ] http=200  0.02s :: "I don't know the answer to that."
 [secret ] http=200  0.02s :: "I'm sorry, I can't respond to that."
+--- check-only mode: POST /v1/checks (verdict only, no model call)
+[allowed] http=200  0.02s :: status=passed rail=None
+[email  ] http=200  0.02s :: status=blocked rail=detect sensitive data on input
+[ssn    ] http=200  0.02s :: status=blocked rail=detect sensitive data on input
+[secret ] http=200  0.02s :: status=blocked rail=regex check input
 ```
 
 Two things to notice. Blocked input is an **HTTP 200** with a canned refusal, and the refusal text
-depends on which rail fired, so response text and status code cannot be used to count blocks. That
-is why the dashboard is built on spans. And the "allowed" answer is a reasoning model's thinking
+depends on which rail fired (a fixed message from NeMo's built-in flows, not model output; see
+[docs/how-it-works.md](docs/how-it-works.md#where-the-refusal-text-comes-from)), so response text and
+status code cannot be used to count blocks. That is why the dashboard is built on spans. And in my run the "allowed" answer was a reasoning model's thinking
 text cut off by the small `max_tokens`; that is the model, not the guardrail.
 
 Shape the synthetic traffic from the `traffic-gen` Deployment env (see `manifests/06-chat-app.yaml`):
@@ -183,6 +192,7 @@ behind by design.
 manifests/    numbered, templated Kubernetes manifests (apply in order)
 scripts/      deploy.sh, verify.sh, probe.sh, teardown.sh, _common.sh
 docs/         how-it-works.md (span model, metrics, queries), troubleshooting.md
+examples/     native-metrics.yaml: NeMo's native counters on the IORails engine (not applied by deploy.sh)
 ```
 
 ## Tested on
@@ -190,6 +200,15 @@ docs/         how-it-works.md (span model, metrics, queries), troubleshooting.md
 OpenShift 4.21.30 (single node), Red Hat OpenShift AI 3.5.1, Cluster Observability Operator 1.5.3,
 Red Hat build of OpenTelemetry 0.158.0-3, NeMo Guardrails 0.24.0.dev0 (the RHOAI server image),
 model served by KServe/vLLM.
+
+Not tested:
+
+- RHOAI 3.6 or any release other than 3.5.1. Check-only endpoint names may change between releases
+  (see [docs/how-it-works.md](docs/how-it-works.md#behaviors-that-differ-from-the-documentation)).
+- The operator-install branch of `deploy.sh` from a clean cluster. The operators were originally
+  installed from `manifests/00-operators.yaml`, but the script's wait expressions were only checked
+  against operators that were already present (use `SKIP_OPERATORS=1` if you manage them yourself).
+- OpenShift releases other than 4.21.
 
 ## Limitations
 

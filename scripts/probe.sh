@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Send one allowed and several sensitive prompts straight to NeMo Guardrails and print the raw
 # responses, so you can see that blocked input is an HTTP 200 with a canned refusal.
+# It then sends the same prompts to /v1/checks (check-only mode: a verdict, no model call).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -42,6 +43,18 @@ spec:
         except urllib.error.HTTPError as e: code=e.code; text=e.read().decode()[:200]
         except Exception as e: code="ERR"; text=repr(e)
         print(f"[{label:7}] http={code} {time.time()-t:5.2f}s :: {text[:110]!r}")
+      print("--- check-only mode: POST /v1/checks (verdict only, no model call)")
+      cu="https://nemo-demo.${NAMESPACE}.svc.cluster.local/v1/checks"
+      for label,msg in tests:
+        body=json.dumps({"model":"${MODEL}","messages":[{"role":"user","content":msg}]}).encode()
+        req=urllib.request.Request(cu,data=body,headers={"Content-Type":"application/json","Authorization":"Bearer "+tok})
+        t=time.time()
+        try:
+          r=urllib.request.urlopen(req,timeout=120,context=ctx); code=r.status; out=json.load(r)
+          text="status="+str(out.get("status"))+" rail="+str(out.get("rail"))
+        except urllib.error.HTTPError as e: code=e.code; text=e.read().decode()[:200]
+        except Exception as e: code="ERR"; text=repr(e)
+        print(f"[{label:7}] http={code} {time.time()-t:5.2f}s :: {text}")
 YAML
 log "Running probe (the first allowed request can be slow on a cold model)"
 wait_for 180 Succeeded get pod nemo-probe -n "$NAMESPACE" -o jsonpath='{.status.phase}' || true

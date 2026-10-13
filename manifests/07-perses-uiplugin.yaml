@@ -1,5 +1,6 @@
 # Cluster-scoped: enables Observe > Dashboards (Perses) in the OpenShift console.
-# Requires COO 1.5+, OCP 4.15+. cluster-admin only.
+# Tested with COO 1.5.3 on OCP 4.21 (PersesDashboard uses perses.dev/v1alpha2). Older COO or OCP
+# versions were not tested. cluster-admin only.
 apiVersion: observability.openshift.io/v1alpha1
 kind: UIPlugin
 metadata:

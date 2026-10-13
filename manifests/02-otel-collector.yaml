@@ -1,5 +1,7 @@
-# NeMo Guardrails emits TRACES only (Red Hat docs set OTEL_METRICS_EXPORTER=none).
-# This collector receives those traces and derives Prometheus counters from the spans.
+# With the rails used in this demo (Presidio + regex, run by NeMo's LLMRails engine) NeMo Guardrails
+# emits TRACES only (Red Hat docs set OTEL_METRICS_EXPORTER=none). NeMo's native request counters are
+# emitted only by its IORails engine, which does not support these rails.
+# This collector receives the traces and derives Prometheus counters from the spans.
 #
 # Verified span model (NeMo 0.24.0.dev0 in RHOAI 3.5.1):
 #   guardrails.request  (Server)    one per guarded request

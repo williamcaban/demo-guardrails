@@ -107,11 +107,69 @@ apart.
 
 | Topic | Documentation | Observed |
 |---|---|---|
-| Blocked chat completion | `{"status":"blocked", ...}` | HTTP 200 with a canned refusal in `choices[0].message.content`. The `status`/`rails_status` shape belongs to `/v1/guardrail/checks`. |
-| Refusal text | n/a | Differs per rail (`I'm sorry, I can't respond to that.` for the regex rail, `I don't know the answer to that.` for Presidio). |
-| Metrics | observability implied | Traces only. No guardrail metrics from the NeMo pod. |
+| Blocked chat completion (inline mode, `/v1/chat/completions`) | `{"status":"blocked", ...}` | HTTP 200 with a canned refusal in `choices[0].message.content` and no blocked flag. |
+| Check-only mode, upstream (`/v1/checks`) | Documented as single-turn checks that can transform content | Confirmed live: HTTP 200, `{"status": "passed" or "blocked", "content": ..., "rail": "<rail that blocked>"}`. No model call. Upstream NeMo (`v0.24.0`) has this endpoint. |
+| Check-only mode, Red Hat fork (`/v1/guardrail/checks`) | `status` is `success`, `blocked` or `error`, plus `rails_status` | Confirmed live: HTTP 200, `status` is `success` or `blocked` (never `allowed`), per-rail `rails_status`, no model call. Fork-only, per the source. Planned for deprecation in RHOAI 3.6 in favor of `/v1/checks`. |
+| Refusal text | n/a | Differs per rail (`I'm sorry, I can't respond to that.` for the regex rail, `I don't know the answer to that.` for Presidio). Not model output: see [Where the refusal text comes from](#where-the-refusal-text-comes-from). |
+| Metrics | observability implied | With the Presidio and regex rails used here (the `LLMRails` engine): traces only, and the pod has no `/metrics` endpoint. NeMo does define native counters (`guardrails.requests`, `guardrails.requests.blocked`, ...), but only its newer IORails engine emits them, and IORails supports only content-safety, topic-safety, jailbreak-detection and tool-validation rails. |
 | Presidio SSN | `US_SSN` entity listed | `123-45-6789` scored below 0.5 and was not blocked; `219-09-9999` was. The regex rail covers the pattern deterministically. |
 | `enable-auth: 'true'` | "requires a bearer token" | Adds a kube-rbac-proxy sidecar (pod 2/2), serves on 443 with service-CA TLS, Route is `reencrypt`. Callers need a token with the `view` role. |
+
+## Where the refusal text comes from
+
+The refusal strings are fixed messages in NeMo's built-in Colang flows, not output of the main model
+or of a guardrail prompt. Inspected in the running server image (`nemoguardrails` 0.24.0.dev0, the
+`*.v1.co` Colang 1.0 flows used when a config sets no `colang_version`):
+
+| Rail | Flow (under `/app/nemoguardrails/library/`) | Message used | Text |
+|---|---|---|---|
+| `regex check input` / `output` | `regex/flows.v1.co` | `bot refuse to respond` | `I'm sorry, I can't respond to that.` |
+| `detect sensitive data on input` / `output` | `sensitive_data_detection/flows.v1.co` | `bot inform answer unknown` | `I don't know the answer to that.` |
+
+The sensitive-data flows do not define their own refusal. They reuse `bot inform answer unknown`, which
+lives in the hallucination library (`hallucination/flows.v1.co`). That is why a PII block reads like
+a "no answer" message.
+
+To see it yourself:
+
+```bash
+oc exec -n guardrails-demo deploy/nemo-demo -c nemo-guardrails -- \
+  grep -rn "I don't know the answer to that\|can't respond to that" /app/nemoguardrails/library --include=*.v1.co
+```
+
+The NeMo docs show how to override the `bot refuse to respond` message by redefining it in a Colang file
+([self-check rails](https://docs.nvidia.com/nemo/guardrails/latest/configure-guardrails/guardrail-catalog/self-check)).
+Whether `bot inform answer unknown` can be overridden the same way from the config's `rails.co` has
+not been tested here. The Presidio page only says the bot "will refuse to respond"
+([Presidio integration](https://docs.nvidia.com/nemo/guardrails/latest/configure-guardrails/guardrail-catalog/third-party/presidio)).
+
+## Native NeMo metrics (IORails engine)
+
+NeMo 0.24.0.dev0 defines native OpenTelemetry counters, but this demo's rails cannot use them. Verified
+on the RHOAI 3.5.1 image with [examples/native-metrics.yaml](../examples/native-metrics.yaml):
+
+| Requirement | Why |
+|---|---|
+| `NEMO_GUARDRAILS_IORAILS_ENGINE=true` | selects the IORails engine (default is LLMRails) |
+| `metrics.enabled: true` in `config.yaml` | defaults to `false` |
+| `OTEL_METRICS_EXPORTER=otlp` | the RHOAI docs set `none`; the image runs OpenTelemetry auto-instrumentation, so this env var picks the exporter |
+| a collector with a metrics pipeline `otlp -> prometheus` | the demo collector only has `spanmetrics -> prometheus` |
+| rails IORails supports | `content safety check input/output`, `topic safety check input`, `jailbreak detection model`, tool call/result validation. Anything else (Presidio, regex, self-check) makes NeMo fall back to LLMRails, which emits no native metrics. |
+
+Series seen at the collector's Prometheus exporter:
+
+| Series | Labels |
+|---|---|
+| `guardrails_requests_total` (counter) | none |
+| `guardrails_requests_blocked_total` (counter) | `rail_type` (value `Input`, capitalized; no `rail_name`) |
+| `guardrails_request_duration_seconds` (histogram), `guardrails_requests_active`, `guardrails_nonstream_*_ratio` | |
+| `gen_ai_client_operation_duration_seconds`, `gen_ai_client_token_usage` | `gen_ai_*` labels per LLM call |
+
+These are the same names the dashboard queries use, but there is no per-rail label, so the "Blocked by
+rail" panel needs the span-derived series. Limits of the test: it used the main reasoning model as the
+content-safety classifier, so every request was classified unsafe (4 requests, 4 blocked) and the
+allowed path was not exercised; the span-derived pipeline is what this repo's dashboard is built and
+validated on.
 
 ## Extending
 
