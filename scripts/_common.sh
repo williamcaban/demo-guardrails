@@ -13,6 +13,27 @@ log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mxx\033[0m  %s\n' "$*" >&2; exit 1; }
 
+# Model id the main model is served under. This default is the lab model; set MODEL_NAME for any other
+# environment (it must match what your endpoint's /v1/models reports).
+DEFAULT_MODEL_NAME="qwen3-27b-nvfp4"
+
+# Resolve MODEL_NAME and record where it came from in MODEL_SOURCE. Order: the MODEL_NAME env var, the
+# model the deployed NeMo ConfigMap already uses (so a re-run never overwrites a working deployment),
+# the chat-app env (MODEL_NAME, or MODEL from older revisions), then DEFAULT_MODEL_NAME.
+resolve_model_name() {
+  local m=""
+  if [ -n "${MODEL_NAME:-}" ]; then MODEL_SOURCE="MODEL_NAME env var"; return 0; fi
+  m="$("${OC[@]}" get cm nemo-demo-config -n "$NAMESPACE" -o jsonpath='{.data.config\.yaml}' 2>/dev/null \
+       | sed -n 's/^ *model: *//p' | head -1 | tr -d "\"'")" || true
+  if [ -n "$m" ]; then MODEL_NAME="$m"; MODEL_SOURCE="deployed NeMo ConfigMap"; return 0; fi
+  for n in MODEL_NAME MODEL; do
+    m="$("${OC[@]}" get deploy chat-app -n "$NAMESPACE" \
+         -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name==\"$n\")].value}" 2>/dev/null)" || true
+    if [ -n "$m" ]; then MODEL_NAME="$m"; MODEL_SOURCE="chat-app env $n"; return 0; fi
+  done
+  MODEL_NAME="$DEFAULT_MODEL_NAME"; MODEL_SOURCE="default"
+}
+
 # Render a manifest template (only our three placeholders; Perses $__rate_interval is untouched).
 render() {
   sed -e "s|\${NAMESPACE}|${NAMESPACE}|g" \

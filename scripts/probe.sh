@@ -5,9 +5,9 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-MODEL="${MODEL_NAME:-$("${OC[@]}" get deploy chat-app -n "$NAMESPACE" \
-  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MODEL")].value}')}"
-[ -n "$MODEL" ] || die "set MODEL_NAME (could not read it from deploy/chat-app)"
+resolve_model_name
+MODEL="$MODEL_NAME"
+log "Model id: $MODEL (from $MODEL_SOURCE)"
 
 "${OC[@]}" delete pod nemo-probe -n "$NAMESPACE" --ignore-not-found >/dev/null
 cat <<YAML | "${OC[@]}" apply -n "$NAMESPACE" -f - >/dev/null

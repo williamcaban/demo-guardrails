@@ -27,7 +27,7 @@ data:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from common import SA, post_json
     NEMO_URL = os.environ["NEMO_URL"]
-    MODEL = os.environ.get("MODEL", "${MODEL_NAME}")
+    MODEL = os.environ.get("MODEL_NAME", "${MODEL_NAME}")
     class H(BaseHTTPRequestHandler):
         def _send(self, code, obj):
             b = __import__("json").dumps(obj).encode()
@@ -98,7 +98,7 @@ spec:
               value: "1"
             - name: NEMO_URL
               value: https://nemo-demo.${NAMESPACE}.svc.cluster.local/v1/chat/completions
-            - name: MODEL
+            - name: MODEL_NAME
               value: "${MODEL_NAME}"
           ports: [{containerPort: 8080}]
           readinessProbe: {httpGet: {path: /, port: 8080}, periodSeconds: 10}

@@ -34,7 +34,8 @@ oc get servicemonitor,svc -n guardrails-demo
 
 - The NeMo pod must have `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at
   `otel-collector.<ns>.svc.cluster.local:4317` (gRPC) and `tracing.enabled: true` in the ConfigMap.
-  The operator does not restart the pod when the ConfigMap changes: `oc rollout restart deploy/nemo-demo`.
+  After a ConfigMap change, check that the pod was replaced (`oc get pods`). In testing the operator
+  rolled it within about 20 seconds; if yours did not, `oc rollout restart deploy/nemo-demo`.
 - The `otel-collector` Service must expose a port named `prometheus` (8889). The ServiceMonitor
   selects the Service labelled `app.kubernetes.io/instance: <ns>.otel`.
 - In the console, **Observe, Targets** (with "User" source) should show the collector target as Up.

@@ -82,7 +82,7 @@ cluster trust bundle, add `spec.caBundleConfig.configMapName` to the `NemoGuardr
 ```bash
 oc login https://api.<your-cluster>:6443
 
-export MODEL_NAME=<served model id>                       # what /v1/models reports
+export MODEL_NAME=<served model id>                       # optional: what /v1/models reports
 export MODEL_BASE_URL=https://<model-svc>.<ns>.svc.cluster.local:8000/v1
 export MODEL_API_KEY=<token for the model endpoint>
 
@@ -99,6 +99,7 @@ Optional environment variables for `deploy.sh`:
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `MODEL_NAME` | model of an existing deployment, else the lab default `qwen3-27b-nvfp4` | Model id your endpoint serves (what `/v1/models` reports). Set it for any other environment |
 | `NAMESPACE` | `guardrails-demo` | Target namespace (every manifest is templated) |
 | `OC_CONTEXT` | current context | Use a specific kubeconfig context |
 | `SKIP_OPERATORS` | `0` | Set to `1` if the operators are already installed |
@@ -135,18 +136,28 @@ Why separate namespaces for the operators: see
 | input | `detect sensitive data on input` (Presidio) | email, phone (international format), credit card, and some SSNs (it missed `123-45-6789` at the 0.5 threshold; the regex rail below covers the pattern) |
 | input | `regex check input` | words like `password`/`api_key`/`token`, and `NNN-NN-NNNN` |
 | output | `detect sensitive data on output` (Presidio) | same entities in model responses |
+| output | `regex check output` | the same keyword pattern in model responses. It scans the whole response, including a reasoning model's thinking text |
 
 Tracing is on with `enable_content_capture: false`, so prompts and responses are never put in spans.
-To change the policy, edit the ConfigMap and restart the pod (the operator does not roll it for you):
+To change the policy, edit the ConfigMap. In testing on RHOAI 3.5.1 the operator replaced the NeMo pod
+within about 20 seconds of a ConfigMap change; check with `oc get pods -n guardrails-demo`, and restart it
+yourself if yours does not roll:
 
 ```bash
 SKIP_OPERATORS=1 ./scripts/deploy.sh            # idempotent; re-renders and applies everything
-oc rollout restart deploy/nemo-demo -n guardrails-demo
+oc rollout restart deploy/nemo-demo -n guardrails-demo   # only if the pod was not replaced
 ```
 
 ## Try it
 
-`scripts/probe.sh` sends one allowed and three sensitive prompts. Typical output:
+**`MODEL_NAME` is optional.** `deploy.sh` and both probe scripts resolve the model id in this order: the
+`MODEL_NAME` environment variable, the model the deployed NeMo ConfigMap already uses (so re-running
+`deploy.sh` never overwrites a working deployment), the `MODEL_NAME` (or older `MODEL`) env on
+`deploy/chat-app`, and finally the lab default `qwen3-27b-nvfp4`. The scripts print which source they
+used. On any other cluster, export `MODEL_NAME` the first time you deploy; the default is only right where
+your endpoint serves that model.
+
+`scripts/probe.sh` sends one allowed and three sensitive prompts. (`scripts/probe-output.sh` exercises the output regex rail: it asks two questions with clean inputs, one whose answer is a trigger word.) Typical output:
 
 ```
 [allowed] http=200  0.70s :: 'We need to respond to user: "Below is a conversation ...'

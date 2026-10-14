@@ -1,4 +1,4 @@
-# Config: PII + secret-pattern input rails, PII output rail, OTEL tracing, any OpenAI-compatible model as main.
+# Config: PII + secret-pattern input rails, PII + secret-pattern output rails, OTEL tracing, any OpenAI-compatible model as main.
 # Placeholders ${NAMESPACE} ${MODEL_NAME} ${MODEL_BASE_URL} are filled in by scripts/deploy.sh.
 apiVersion: v1
 kind: ConfigMap
@@ -35,6 +35,11 @@ data:
               - "\\b(password|secret|api[_-]?key|token)\\b"
               - "\\b\\d{3}-\\d{2}-\\d{4}\\b"
             case_insensitive: true
+          # The regex output rail does nothing unless this list is set.
+          output:
+            patterns:
+              - "\\b(password|secret|api[_-]?key|token)\\b"
+            case_insensitive: true
       input:
         flows:
           - detect sensitive data on input
@@ -42,6 +47,7 @@ data:
       output:
         flows:
           - detect sensitive data on output
+          - regex check output
   rails.co: |
     # Built-in rails only
 ---

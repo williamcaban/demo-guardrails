@@ -2,10 +2,11 @@
 # Deploy the NeMo Guardrails + OTEL + Perses demo.
 #
 # Required env:
-#   MODEL_NAME       model id served by your OpenAI-compatible endpoint (e.g. my-model)
 #   MODEL_BASE_URL   endpoint ending in /v1 (e.g. https://my-model-predictor.my-ns.svc.cluster.local:8443/v1)
 #   MODEL_API_KEY    bearer token / API key for that endpoint
 # Optional env:
+#   MODEL_NAME       model id served by your OpenAI-compatible endpoint (what /v1/models reports).
+#                    Default: the model of an existing deployment, else the lab model (see _common.sh).
 #   NAMESPACE        target namespace (default guardrails-demo)
 #   OC_CONTEXT       kubeconfig context to use (default: current)
 #   SKIP_OPERATORS=1 do not install the OpenTelemetry/COO operators (already present)
@@ -13,11 +14,16 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-: "${MODEL_NAME:?set MODEL_NAME}"
 : "${MODEL_BASE_URL:?set MODEL_BASE_URL (must end in /v1)}"
 : "${MODEL_API_KEY:?set MODEL_API_KEY}"
 case "$MODEL_BASE_URL" in */v1) ;; *) die "MODEL_BASE_URL must end in /v1";; esac
+resolve_model_name
 export MODEL_NAME MODEL_BASE_URL
+if [ "$MODEL_SOURCE" = default ]; then
+  warn "MODEL_NAME not set: using the lab default '$MODEL_NAME'. For another environment export MODEL_NAME (see /v1/models)."
+else
+  log "Model id: $MODEL_NAME (from $MODEL_SOURCE)"
+fi
 
 log "Cluster: $("${OC[@]}" whoami --show-server)  as  $("${OC[@]}" whoami)"
 
