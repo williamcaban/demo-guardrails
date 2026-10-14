@@ -157,7 +157,7 @@ oc rollout restart deploy/nemo-demo -n guardrails-demo   # only if the pod was n
 used. On any other cluster, export `MODEL_NAME` the first time you deploy; the default is only right where
 your endpoint serves that model.
 
-`scripts/probe.sh` sends one allowed and three sensitive prompts. (`scripts/probe-output.sh` exercises the output regex rail: it asks two questions with clean inputs, one whose answer is a trigger word.) Typical output:
+`scripts/probe.sh` sends one allowed and three sensitive prompts. (`scripts/probe-output.sh` exercises the output regex rail: one ordinary question and one clean-input prompt whose answer is a trigger word, sent five times because the model's output varies.) Typical output:
 
 ```
 [allowed] http=200  0.70s :: 'We need to respond to user: "Below is a conversation ...'
@@ -176,6 +176,8 @@ depends on which rail fired (a fixed message from NeMo's built-in flows, not mod
 [docs/how-it-works.md](docs/how-it-works.md#where-the-refusal-text-comes-from)), so response text and
 status code cannot be used to count blocks. That is why the dashboard is built on spans. And in my run the "allowed" answer was a reasoning model's thinking
 text cut off by the small `max_tokens`; that is the model, not the guardrail.
+
+The sensitive prompts include one whose clean input produces a trigger word in the answer, so `regex check output` fires under synthetic traffic too (it appears as its own series in the "blocked by rail" panel). These prompts are not blocked on every run, because the model's output varies (about 7 of 8 in testing), so a few count as allowed.
 
 Shape the synthetic traffic from the `traffic-gen` Deployment env (see `manifests/06-chat-app.yaml`):
 

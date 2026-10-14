@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Exercise the output regex rail (`regex check output`).
-# Both prompts have clean inputs, so the input rails let them through. The second one is a question
-# whose ANSWER is a word the output pattern blocks ("password"). With the rail enabled it comes back as
-# the canned refusal; without it, the answer passes. The check reads the whole response, including a
-# reasoning model's thinking text.
+# Both prompts have clean inputs (no trigger word), so the input rails let them through. The second asks
+# for a word the output pattern blocks ("password"), spelled out in letters so the input stays clean.
+# With the rail enabled the response comes back as the canned refusal; without it, the answer passes.
+# The check reads the whole response, including a reasoning model's thinking text, and a model's output
+# varies, so the trigger prompt is sent several times and the script reports how many were blocked.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -32,20 +33,23 @@ spec:
       ctx=ssl.create_default_context(cafile=sa+"/service-ca.crt")
       u="https://nemo-demo.${NAMESPACE}.svc.cluster.local/v1/chat/completions"
       refusal="I'm sorry, I can't respond to that."
-      tests=[("control","What is the capital of France? Answer in one sentence."),
-             ("output-secret","What single English word names the string of characters you type, together with a username, to log in to an account? One word.")]
-      for label,msg in tests:
+      import concurrent.futures as cf
+      def ask(msg):
         # max_tokens is large because a reasoning model writes its thinking text first.
-        body=json.dumps({"model":"${MODEL}","max_tokens":1500,"messages":[{"role":"user","content":msg}]}).encode()
+        body=json.dumps({"model":"${MODEL}","max_tokens":400,"messages":[{"role":"user","content":msg}]}).encode()
         req=urllib.request.Request(u,data=body,headers={"Content-Type":"application/json","Authorization":"Bearer "+tok})
-        t=time.time()
         try:
-          r=urllib.request.urlopen(req,timeout=170,context=ctx); code=r.status; out=json.load(r)
-          text=out["choices"][0]["message"]["content"] or ""
-        except urllib.error.HTTPError as e: code=e.code; text=e.read().decode()[:200]
-        except Exception as e: code="ERR"; text=repr(e)
-        verdict="BLOCKED by an output rail" if text.strip()==refusal else "passed"
-        print(f"[{label:13}] http={code} {time.time()-t:5.1f}s {verdict} :: {text[:90]!r}")
+          r=urllib.request.urlopen(req,timeout=170,context=ctx)
+          return r.status, (json.load(r)["choices"][0]["message"]["content"] or "").strip()
+        except urllib.error.HTTPError as e: return e.code, e.read().decode()[:200]
+        except Exception as e: return "ERR", repr(e)
+      N=5
+      for label,msg,runs in [("control","What is the capital of France? Answer in one sentence.",1),
+                             ("output-secret","Write the letters p a s s w o r d as a single lowercase word, nothing else.",N)]:
+        t=time.time()
+        with cf.ThreadPoolExecutor(runs) as ex: res=list(ex.map(lambda _: ask(msg), range(runs)))
+        blocked=sum(1 for c,tx in res if tx==refusal)
+        print(f"[{label:13}] {runs} run(s), {time.time()-t:4.1f}s: {blocked} blocked by an output rail, {runs-blocked} passed :: {res[0][1][:70]!r}")
 YAML
 log "Running output-rail probe (a reasoning model can take several seconds per prompt)"
 wait_for 300 Succeeded get pod nemo-probe-output -n "$NAMESPACE" -o jsonpath='{.status.phase}' || true
