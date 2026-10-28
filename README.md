@@ -133,8 +133,8 @@ Why separate namespaces for the operators: see
 
 | Stage | Rail | Catches |
 |---|---|---|
-| input | `detect sensitive data on input` (Presidio) | email, phone (international format), credit card, and some SSNs (it missed `123-45-6789` at the 0.5 threshold; the regex rail below covers the pattern) |
-| input | `regex check input` | words like `password`/`api_key`/`token`, and `NNN-NN-NNNN` |
+| input | `detect sensitive data on input` (Presidio) | built-in entities: email, phone (international format), credit card, and SSNs. `US_SSN` only accepts numbers that can be valid SSNs, so the placeholder `123-45-6789` passes through while `219-09-9999` is blocked |
+| input | `regex check input` | words like `password`/`api_key`/`token` |
 | output | `detect sensitive data on output` (Presidio) | same entities in model responses |
 | output | `regex check output` | the same keyword pattern in model responses. It scans the whole response, including a reasoning model's thinking text |
 
@@ -206,6 +206,7 @@ manifests/    numbered, templated Kubernetes manifests (apply in order)
 scripts/      deploy.sh, verify.sh, probe.sh, teardown.sh, _common.sh
 docs/         how-it-works.md (span model, metrics, queries), troubleshooting.md
 examples/     native-metrics.yaml: NeMo's native counters on the IORails engine (not applied by deploy.sh)
+              custom-recognizer.yaml: a custom locale-specific ID (Saudi National ID) next to the built-ins (not applied by deploy.sh; verified once on RHOAI 3.5.1)
 ```
 
 ## Tested on

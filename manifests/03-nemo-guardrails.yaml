@@ -33,7 +33,6 @@ data:
           input:
             patterns:
               - "\\b(password|secret|api[_-]?key|token)\\b"
-              - "\\b\\d{3}-\\d{2}-\\d{4}\\b"
             case_insensitive: true
           # The regex output rail does nothing unless this list is set.
           output:
@@ -42,8 +41,8 @@ data:
             case_insensitive: true
       input:
         flows:
-          - detect sensitive data on input
-          - regex check input
+          - detect sensitive data on input   # Presidio built-in entities (email, phone, SSN, card)
+          - regex check input                # secrets keywords only
       output:
         flows:
           - detect sensitive data on output

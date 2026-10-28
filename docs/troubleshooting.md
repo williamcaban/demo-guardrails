@@ -90,6 +90,11 @@ with the wrong source name produces exactly this.
 
 ## NeMo cannot reach the model (TLS or 401)
 
+- Every allowed prompt answers `Internal server error` and the NeMo log shows `ConnectTimeout`: the model
+  runs in another namespace and a NetworkPolicy there does not allow ingress from this namespace. Seen
+  with a model in `models-as-a-service`, where the controller-created `<model>-prometheus-scraping`
+  policy only admitted monitoring traffic. Allow the NeMo pod's namespace to the model port, or use an
+  endpoint that is reachable from here (a MaaS endpoint with a valid certificate worked).
 - `MODEL_BASE_URL` must end in `/v1`.
 - The serving certificate must chain to a CA the pod trusts. The operator mounts the OpenShift
   service CA and the cluster trust bundle; for anything else use `spec.caBundleConfig`.
@@ -106,8 +111,9 @@ behavior. Raise `max_tokens` in `manifests/06-chat-app.yaml` (`app.py`) or use a
 
 Check the rails in the ConfigMap. Name detection (`PERSON`) is not enabled in this demo; add it under
 `entities` if you want it. In testing, phone numbers only reached the configured 0.5 score in
-international format (`+1 415 ...`), and `123-45-6789` scored below 0.5 for Presidio (`219-09-9999`
-was blocked), which is why the regex rail carries the `NNN-NN-NNNN` pattern.
+international format (`+1 415 ...`). `123-45-6789` is not blocked either, and that is correct: Presidio's
+`US_SSN` recognizer treats it as a published placeholder, not a valid SSN (`219-09-9999` is blocked). Test
+with a number that could be real, and do not add a regex for a format a built-in recognizer already covers.
 
 ## After teardown, an empty Perses project remains
 
